@@ -11,7 +11,7 @@ import { toast } from "react-toastify"
 const PlaceOrder = () => {
 
     const [method, setMethod] = useState('cod');
-    const { navigate, backendUrl, token, cartItems, setCartItems, getCartAmount, delivery_fee, products } = useContext(ShopContext);
+    const { navigate, backendUrl, token, cartItems, getCartAmount, delivery_fee, products } = useContext(ShopContext);
     const [formData, setFormData] = useState({
         firstName: '',
         lastName: '',
@@ -61,28 +61,26 @@ const PlaceOrder = () => {
                 //API Calls for COD
                 case 'cod':
                     {
-                        const response = await axios.post(backendUrl + '/order/place', orderData, {headers:{token}})
+                        const responseStripe = await axios.post(backendUrl + '/order/place', orderData, {headers:{token}})
                         //console.log(response.data)
-                        if (response.data.success) {
-                            setCartItems({});
-                            navigate('/orders')
-                            toast.success(response.data);
+                        if (responseStripe.data.success) {
+                            const {session_url} = responseStripe.data;
+                            window.location.replace(session_url);
                         } else {
-                            toast.error(response.data.message);
+                            toast.error(responseStripe.data.message);
                         }
                         break;
                     }
-                // case 'zalopay': {
-                //         const responseZaloPay = await axios.post(backendUrl +  '/order/zalopay',orderData, {headers:{token}})
-                //         console.log(responseZaloPay)
-                //         if (responseZaloPay.data.success) {
-                //             // Điều hướng đến trang thanh toán của ZaloPay
-                //             window.location.href = responseZaloPay.data.session_url;
-                //         } else {
-                //             toast.error(responseZaloPay.data.message);
-                //         }
-                //         break;
-                //     }
+                case 'stripe': {
+                        const responseStripe = await axios.post(backendUrl +  '/order/stripe',orderData, {headers:{token}})
+                        console.log("Stripe: ",responseStripe);
+                        if (responseStripe.data.success) {
+                            window.location.href = responseStripe.data.session_url;
+                        } else {
+                            toast.error(responseStripe.data.message);
+                        }
+                        break;
+                    }
                 default:
                     break;
             }
@@ -130,7 +128,7 @@ const PlaceOrder = () => {
                     <div className="flex gap-3 flex-col lg:flex-row">
                         <div onClick={() => setMethod('stripe')} className="flex items-center gap-3 border p-2 px-3 cursor-pointer">
                             <p className={`min-w-3.5 h-3.5 border rounded-full ${method === 'stripe' ? 'bg-green-400' : ''}`}></p>
-                            <img className="h-5 mx-4" src={assets.zalopay_logo} alt="" />
+                            <img className="h-5 mx-4" src={assets.stripe_logo} alt="" />
                         </div>
                         <div onClick={() => setMethod('razorpay')} className="flex items-center gap-3 border p-2 px-3 cursor-pointer">
                             <p className={`min-w-3.5 h-3.5 border rounded-full ${method === 'razorpay' ? 'bg-green-400' : ''}`}></p>

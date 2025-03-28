@@ -1,13 +1,12 @@
 import orderModel from '../models/orderModel.js'
 import userModel from '../models/userModel.js';
 import Stripe from 'stripe'
-import { ZaloPayClient, TokenizationAPI } from "@zalopay-oss/zalopay-nodejs";
 //Global variables
-const currency = 'inr'
-const deliveryCharge = 10
+const currency = 'usd'
+const deliveryCharge = 5
 
 //Gateway init
-//const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 //Placing orders using COD method
 const placeOrder = async (req, res) => {
@@ -37,69 +36,82 @@ const placeOrder = async (req, res) => {
     }
 }
 
-//Placing orders using Zalopay method
-const placeOrderZaloPay = async (req, res) => {
-    // try {
-    //     const { userId, items, amount, description } = req.body;
-    //     const { origin } = req.headers;
+//Placing orders using stripe method
+const placeOrderStripe = async (req, res) => {
+    try {
+        const { userId, items, amount, address } = req.body;
+        const { origin } = req.headers;
 
-    //     if (!userId || !items || !amount || !description) {
-    //         return res.status(400).json({ success: false, message: "Missing required fields" });
-    //     }
+        if (!userId || !items || !amount || !address) {
+            return res.status(400).json({ success: false, message: "Missing required fields" });
+        }
+        
+        const orderData = { 
+            userId, 
+            items,
+            amount,
+            address,
+            paymentMethod: "Stripe",
+            payment: false,
+            date: Date.now()
+        }
 
-    //     const currentData = Date.now();
-    //     const app_time = currentData.valueOf();
-    //     const tranId = moment(currentData).format('YYMMDD');
-    //     const app_trans_id = `${tranId}_${app_time}`;
-    //     const key1 = process.env.ZALOPAY_KEY1 || "PcY4iZIKFCIdgZvA6ueMcMHHUbRLYjPL"; // Nên dùng biến môi trường
+        const newOrder = new orderModel(orderData);
+        await newOrder.save();
 
-    //     const orderData = {
-    //         app_id: process.env.ZALOPAY_APP_ID || "demo_app_id", // Nên lấy từ biến môi trường
-    //         app_user: "demo",
-    //         app_time: app_time,
-    //         amount: amount,
-    //         app_trans_id: app_trans_id,
-    //         bank_code: "zalopayapp",
-    //         embed_data: JSON.stringify({ return_url: `${origin}/payment-success` }),
-    //         item: JSON.stringify(items),
-    //         description: description,
-    //         mac: "",
-    //     };
+        const line_items = items.map((item) => ({
+            price_data: {
+                currency: currency,
+                product_data: {
+                    name:item.name,
+                },
+                unit_amount: item.price * 100
+            },
+            quantity: item.quantity
+        }))
 
-    //     // Tạo chuỗi HMAC
-    //     const hmac_input = `${orderData.app_id}|${orderData.app_trans_id}|${orderData.app_user}|${orderData.amount}|${orderData.app_time}|${orderData.embed_data}|${orderData.item}`;
-    //     orderData.mac = crypto.createHmac('sha256', key1).update(hmac_input).digest('hex');
+        line_items.push({
+            price_data: {
+                currency: currency,
+                product_data: {
+                    name:'Delivery Charges',
+                },
+                unit_amount: deliveryCharge * 100
+            },
+            quantity: 1
+        })
 
-    //     // Lưu đơn hàng vào database
-    //     const newOrder = new orderModel(orderData);
-    //     await newOrder.save();
+        const session = await stripe.checkout.sessions.create({
+            success_url: `${origin}/verify?success=true&orderId=${newOrder._id}`,
+            cancel_url: `${origin}/verify?success=false&orderId=${newOrder._id}`,
+            line_items,
+            mode: 'payment',
+        })
 
-    //     // Gửi yêu cầu thanh toán đến ZaloPay
-    //     const zaloPayResponse = await fetch("https://sandbox.zalopay.vn/v2/create", {
-    //         method: "POST",
-    //         headers: {
-    //             "Content-Type": "application/json",
-    //         },
-    //         body: JSON.stringify(orderData),
-    //     });
+        res.json({success: true, session_url: session.url})
 
-    //     const zaloPayResult = await zaloPayResponse.json();
-
-    //     if (zaloPayResult.return_code !== 1) {
-    //         return res.status(400).json({ success: false, message: zaloPayResult.return_message });
-    //     }
-
-    //     res.json({ success: true, session_url: zaloPayResult.order_url });
-
-    // } catch (error) {
-    //     console.error(error);
-    //     res.status(500).json({ success: false, message: error.message });
-    // }
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
 }
 
-//Placing orders using Razorpay method
-const placeOrderRazorpay = async (req, res) => {
+const verifyStripe = async (req,res) => {
+    const {orderId, success, userId} = req.body;
 
+    try {
+        if(success === "true"){
+            await orderModel.findByIdAndUpdate(orderId, {payment: true});
+            await userModel.findByIdAndUpdate(userId, {cartData: {}})
+            res.json({success: true});
+        } else {
+            await orderModel.findByIdAndDelete(orderId);
+            res.json({success: false});
+        }
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: error.message });
+    }
 }
 
 //All Orders data for Admin Panel 
@@ -149,4 +161,4 @@ const updateStatus = async (req,res) => {
     }
 }
 
-export {placeOrder,placeOrderRazorpay,placeOrderZaloPay,allOrders,userOrders,updateStatus}
+export {verifyStripe ,placeOrder,placeOrderStripe,allOrders,userOrders,updateStatus}
